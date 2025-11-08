@@ -1,0 +1,21 @@
+# Ignore the virtual environment
+utdca/
+
+# Ignore the python cache
+__pycache__/
+
+# Ignore the git files
+.git/
+.gitignore/
+
+# Ignore the locally created index
+faiss_vector_store/
+
+# Ignore the downloaded zip file
+faiss_vector_store.zip
+
+# Ignore AWS credentials
+.aws/
+
+# Ignore this folder
+discarded_data/

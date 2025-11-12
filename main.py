@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 import time
 import csv
 import boto3
@@ -50,6 +51,34 @@ def batch_generator(data, batch_size):
     """Yields batches of a specific size from a list."""
     for i in range(0, len(data), batch_size):
         yield data[i:i + batch_size]
+
+def _load_prof_reviews_json(file_path):
+    """
+    Reads the professor review JSON file and transforms each entry
+    into a semantically rich Document.
+    """
+    docs = []
+    print(f"Starting to load {file_path.name} with custom JSON logic...")
+    with open(file_path, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+        # data is a dict: {"6313": [...], "6350": [...]}
+        for course_number, professors_list in data.items():
+            for prof in professors_list:
+                # Transform into a clean sentence
+                page_content = (
+                    f"For course CS {course_number}, professor {prof.get('name')} "
+                    f"has a student rating of {prof.get('rating')}, "
+                    f"a difficulty of {prof.get('difficulty')}, "
+                    f"and {prof.get('would_take_again')} of students would take them again."
+                )
+                metadata = {
+                    "source": "professor_reviews", # Generic, non-revealing source name
+                    "course": course_number,
+                    "professor": prof.get('name')
+                }
+                docs.append(Document(page_content=page_content, metadata=metadata))
+    print(f"Finished loading {len(docs)} professor reviews from {file_path.name}.")
+    return docs
 
 def _load_grade_history_csv(file_path):
     """
@@ -240,50 +269,19 @@ def create_rag_chain(vector_store):
 
     retriever = vector_store.as_retriever(search_type="similarity", search_kwargs={"k":10})
 
-    template = """You are an expert UTD academic assistant. Your goal is to answer a student's question accurately using the context provided.
-    You will be given context from several different data sources. You must pay close attention to which source you are using.
-    If the context does not contain the answer, you must say "I do not have enough information to answer that question."
-    Do not make up answers.
-
-    Here is a guide to the data sources you will receive as context:
-
-    ---
-    **Data Source 1: Coursebook CSVs (e.g., `2026 coursebook.csv`)**
-    This data provides the detailed class schedule for a specific semester.
-    * `course_prefix`: The subject (e.g., `cs`).
-    * `course_number`: The 4-digit course number (e.g., `5333`).
-    * `title`: The name of the course (e.g., `Discrete Structures`).
-    * `instructor_s`: The professor for that section.
-    * `days` & `times_12h`: The meeting days and time (e.g., `Tuesday, Thursday`, `2:30 PM - 3:45 PM`).
-    * `location`: The building and room number (e.g., `AD_3.216`).
-
-    ---
-    **Data Source 2: Grade History CSVs (e.g., `filtered_Spring 2022.csv`, `filtered_Fall 2023.csv`, `filtered_Fall 2024.csv`)**
-    This data provides historical grade distributions for past semesters.
-    * `Subject` & `Catalog Nbr`: The course (e.g., `CS`, `6301`).
-    * `A+`, `A`, `A-`, `B+`, `B`, `B-`, etc: The **count** of students who received that grade.
-    * `W`: The count of students who "Withdrew".
-    * `Instructor 1`: The professor for that section.
-    * **How to use:** Use this to answer questions about a professor's grading. For example: "In Spring 2022, Professor X gave 27 A's, 5 A-'s, and 2 B+'s for CS 6301."
-
-    ---
-    **Data Source 3: `Track info.docx` (CS Program Requirements)**
-    This is the main file for degree plans, tracks, and faculty lists.
-    * It contains headings like "Data Sciences Track", "Cyber Security Track", "Intelligent Systems Track", etc.
-    * Under each heading is a list of required courses (e.g., "CS 6313", "CS 6350").
-    * **How to use:** Use this to answer any question about what tracks are available or what courses are required for a specific track.
-
-    ---
-    **Data Source 4: `course_to_prof.docx` (Professor Review Data)**
-    This file contains professor ratings and difficulty scores, organized by course number.
-    * The file is a dictionary where the key is the 4-digit course number (e.g., "6375").
-    * The value is a list of professors with their `name`, `rating`, `would_take_again`, and `difficulty`.
-    * **CRITICAL REASONING:** This file only has course *numbers*. To answer "Who is a good professor for Machine Learning?", you must first use Data Source 1 or 3 to find that "Machine Learning" is "CS 6375". Then you can use this file to look up the ratings for "6375".
-
-    ---
-    **Data Source 5: Academic Calendars (e.g., `Academic_Calendar_Spring_2026.pdf`)**
-    This file contains important academic dates for a specific semester.
-    * **How to use:** This is your *only* source for questions about semester start/end dates, holidays, and registration deadlines. For example: "When does the Spring 2026 session begin?"
+    template = """You are an expert UTD academic assistant. Your goal is to answer a student's question accurately, concisely, and directly.
+    
+    Use the provided context to find the answer. Synthesize the information from all relevant context pieces to form a complete answer.
+    
+    **CRITICAL RULES:**
+    1.  **NEVER** mention the "context", "provided documents", or "information provided". Act as if you know this information innately.
+    2.  **NEVER** say "Based on the context..." or "According to the document...".
+    3.  If the context does not contain the answer, simply state: "I do not have that information."
+    4.  Do not make up any information that is not in the context.
+    5.  Be direct. If the user asks for a list, provide a list. If they ask a yes/no question, answer it directly.
+    6.  DO NOT MENTION OR REFERENCE ANY DATA SOURCES OR METADATA FROM THE CONTEXT.
+    7.  Keep your answers brief and to the point. Be natural and human like. Be polite and professional.
+    8.  DO NOT share any internal information about the data sources, data content, UTD systems, processes, or data handling.
 
     ---
     HERE IS THE CONTEXT:
@@ -309,6 +307,6 @@ def create_rag_chain(vector_store):
 if __name__=="__main__":
     vector_store = get_vector_store()
     rag_chain = create_rag_chain(vector_store)
-    query = "What track options are available for the CS graduate program at UTD?"
+    query = "What are the meeting times and locations for 'Discrete Structures' in Spring 2026?"
     answer = rag_chain.invoke(query)
     print(f"Answer: {answer}")

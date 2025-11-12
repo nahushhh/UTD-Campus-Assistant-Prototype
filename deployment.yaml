@@ -1,0 +1,22 @@
+apiVersion: apps/v1
+kind: Deployment
+
+metadata:
+  name: utd-assistant-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: utd-assistant
+  template:
+    metadata:
+      labels:
+        app: utd-assistant
+    spec:
+      serviceAccountName: utd-assistant-sa
+      containers:
+        - name: utd-assistant-container
+          image: <YOUR_AWS_ACCOUNT_ID>.dkr.ecr.<YOUR_AWS_REGION>.amazonaws.com/utd-assistant:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8000
